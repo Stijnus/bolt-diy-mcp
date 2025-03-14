@@ -1,0 +1,31 @@
+{
+  "name": "mcp-test-server",
+  "version": "1.0.0",
+  "description": "A simple MCP test server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-client.js",
+    "run-test": "node run-test.js",
+    "simple-server": "node simple-server.js",
+    "simple-client": "node simple-client.js",
+    "debug-client": "node debug-client.js",
+    "check-status": "node check-mcp-status.js",
+    "check-github": "node check-github-connection.js"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "test-server"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.7.0",
+    "cors": "^2.8.5",
+    "eventsource": "^3.0.2",
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2"
+  }
+}

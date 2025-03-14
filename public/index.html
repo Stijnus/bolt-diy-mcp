@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP Test Client</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css" />
+    <style>
+      :root {
+        --primary: #6366f1;
+        --primary-hover: #4f46e5;
+        --primary-focus: rgba(99, 102, 241, 0.25);
+        --primary-inverse: #fff;
+      }
+
+      [data-theme='dark'] {
+        --primary: #818cf8;
+        --primary-hover: #6366f1;
+        --primary-focus: rgba(129, 140, 248, 0.25);
+        --primary-inverse: #fff;
+      }
+
+      body {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      header {
+        margin-bottom: 2rem;
+      }
+
+      .theme-switch {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .tool-card {
+        margin-bottom: 1rem;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        transition: all 0.3s ease;
+      }
+
+      .tool-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      }
+
+      .tool-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+
+      .tool-body {
+        margin-top: 1rem;
+      }
+
+      .tool-args {
+        margin-bottom: 1rem;
+      }
+
+      .tool-result {
+        margin-top: 1rem;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: var(--card-background-color);
+        overflow-x: auto;
+      }
+
+      .connection-status {
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        font-weight: bold;
+      }
+
+      .status-connected {
+        background-color: #10b981;
+        color: white;
+      }
+
+      .status-disconnected {
+        background-color: #ef4444;
+        color: white;
+      }
+
+      .status-connecting {
+        background-color: #f59e0b;
+        color: white;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 1rem;
+      }
+
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .server-info {
+        margin-bottom: 2rem;
+      }
+
+      .tool-description {
+        margin-bottom: 1rem;
+        font-style: italic;
+      }
+
+      .arg-row {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 0.5rem;
+        align-items: center;
+      }
+
+      .arg-name {
+        min-width: 100px;
+        font-weight: bold;
+      }
+
+      .arg-input {
+        flex: 1;
+      }
+
+      .required-field::after {
+        content: '*';
+        color: #ef4444;
+        margin-left: 0.25rem;
+      }
+
+      .log-container {
+        height: 200px;
+        overflow-y: auto;
+        margin-top: 1rem;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        background-color: var(--card-background-color);
+      }
+
+      .log-entry {
+        margin-bottom: 0.5rem;
+        padding: 0.5rem;
+        border-radius: 0.25rem;
+      }
+
+      .log-info {
+        background-color: rgba(99, 102, 241, 0.1);
+      }
+
+      .log-error {
+        background-color: rgba(239, 68, 68, 0.1);
+      }
+
+      .log-success {
+        background-color: rgba(16, 185, 129, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav class="container-fluid">
+        <ul>
+          <li><strong>MCP Test Client</strong></li>
+        </ul>
+        <ul>
+          <li>
+            <div class="theme-switch">
+              <span>🌙</span>
+              <label class="switch">
+                <input type="checkbox" id="theme-toggle" />
+                <span class="slider"></span>
+              </label>
+              <span>☀️</span>
+            </div>
+          </li>
+        </ul>
+      </nav>
+    </header>
+
+    <main class="container">
+      <section class="server-info">
+        <div class="grid">
+          <div>
+            <h2>Server Connection</h2>
+            <form id="connection-form">
+              <div class="grid">
+                <input type="text" id="serverUrl" value="http://localhost:3001/sse" placeholder="Server URL" required />
+                <button type="submit" id="connectBtn">Connect</button>
+              </div>
+            </form>
+            <div class="connection-status status-disconnected" id="connection-status">Disconnected</div>
+          </div>
+          <div>
+            <h2>Server Information</h2>
+            <div id="server-info">
+              <p>Not connected to any server</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Available Tools</h2>
+        <div id="tools-container" class="grid">
+          <article>
+            <p>Connect to a server to see available tools</p>
+          </article>
+        </div>
+      </section>
+
+      <section>
+        <h2>Activity Log</h2>
+        <div class="log-container" id="log-container">
+          <div class="log-entry log-info">System initialized. Ready to connect to MCP server.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="container">
+      <small>
+        MCP Test Client • <a href="https://github.com/modelcontextprotocol" target="_blank">Model Context Protocol</a>
+      </small>
+    </footer>
+
+    <script>
+      // Theme toggle
+      const themeToggle = document.getElementById('theme-toggle');
+
+      // Check for saved theme preference or use preferred color scheme
+      const savedTheme =
+        localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', savedTheme);
+      themeToggle.checked = savedTheme === 'light';
+
+      // Toggle theme
+      themeToggle.addEventListener('change', function () {
+        const theme = this.checked ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+      });
+
+      // Global variables
+      let eventSource;
+      let tools = [];
+      let connected = false;
+
+      // DOM elements
+      const connectionForm = document.getElementById('connection-form');
+      const serverUrl = document.getElementById('serverUrl');
+      const connectionStatus = document.getElementById('connection-status');
+      const serverInfo = document.getElementById('server-info');
+      const toolsContainer = document.getElementById('tools-container');
+      const logContainer = document.getElementById('log-container');
+
+      // Add log entry
+      function addLogEntry(message, type = 'info') {
+        const entry = document.createElement('div');
+        entry.className = `log-entry log-${type}`;
+        entry.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+        logContainer.appendChild(entry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+      }
+
+      // Update connection status
+      function updateConnectionStatus(status, message) {
+        connectionStatus.className = `connection-status status-${status}`;
+        connectionStatus.textContent = message;
+
+        if (status === 'connected') {
+          connected = true;
+          addLogEntry(`Connected to ${serverUrl.value}`, 'success');
+        } else if (status === 'disconnected') {
+          connected = false;
+          addLogEntry(`Disconnected from server`, 'error');
+        } else {
+          addLogEntry(`Connecting to ${serverUrl.value}...`);
+        }
+      }
+
+      // Update server info
+      function updateServerInfo(info) {
+        serverInfo.innerHTML = `
+          <p><strong>URL:</strong> ${serverUrl.value}</p>
+          <p><strong>Status:</strong> Connected</p>
+          <p><strong>Tools:</strong> ${tools.length}</p>
+        `;
+      }
+
+      // Render tools
+      function renderTools() {
+        if (tools.length === 0) {
+          toolsContainer.innerHTML = '<article><p>No tools available on this server</p></article>';
+          return;
+        }
+
+        toolsContainer.innerHTML = '';
+
+        tools.forEach((tool) => {
+          const toolCard = document.createElement('article');
+          toolCard.className = 'tool-card';
+
+          const toolHeader = document.createElement('div');
+          toolHeader.className = 'tool-header';
+
+          const toolTitle = document.createElement('h3');
+          toolTitle.textContent = tool.name;
+
+          toolHeader.appendChild(toolTitle);
+          toolCard.appendChild(toolHeader);
+
+          if (tool.description) {
+            const toolDescription = document.createElement('div');
+            toolDescription.className = 'tool-description';
+            toolDescription.textContent = tool.description;
+            toolCard.appendChild(toolDescription);
+          }
+
+          const toolBody = document.createElement('div');
+          toolBody.className = 'tool-body';
+
+          const toolForm = document.createElement('form');
+          toolForm.className = 'tool-form';
+          toolForm.dataset.tool = tool.name;
+
+          const argsContainer = document.createElement('div');
+          argsContainer.className = 'tool-args';
+
+          // Create input fields for each argument
+          if (tool.inputSchema && tool.inputSchema.properties) {
+            const requiredProps = tool.inputSchema.required || [];
+
+            Object.entries(tool.inputSchema.properties).forEach(([key, prop]) => {
+              const argRow = document.createElement('div');
+              argRow.className = 'arg-row';
+
+              const argName = document.createElement('label');
+              argName.className = requiredProps.includes(key) ? 'arg-name required-field' : 'arg-name';
+              argName.textContent = key;
+              argName.htmlFor = `${tool.name}-${key}`;
+
+              const argInput = document.createElement('input');
+              argInput.className = 'arg-input';
+              argInput.id = `${tool.name}-${key}`;
+              argInput.name = key;
+
+              if (prop.type === 'number') {
+                argInput.type = 'number';
+                argInput.value = prop.default || 0;
+              } else if (prop.type === 'boolean') {
+                argInput.type = 'checkbox';
+                argInput.checked = prop.default || false;
+              } else {
+                argInput.type = 'text';
+
+                if (prop.enum && prop.enum.length > 0) {
+                  // Create a select for enum values
+                  const select = document.createElement('select');
+                  select.id = `${tool.name}-${key}`;
+                  select.name = key;
+                  select.className = 'arg-input';
+
+                  prop.enum.forEach((value) => {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    select.appendChild(option);
+                  });
+
+                  argInput = select;
+                } else {
+                  argInput.value = prop.default || '';
+                }
+              }
+
+              if (prop.description) {
+                argInput.title = prop.description;
+                const argDescription = document.createElement('small');
+                argDescription.textContent = prop.description;
+                argRow.appendChild(argName);
+                argRow.appendChild(argInput);
+                argRow.appendChild(argDescription);
+              } else {
+                argRow.appendChild(argName);
+                argRow.appendChild(argInput);
+              }
+
+              argsContainer.appendChild(argRow);
+            });
+          }
+
+          const submitButton = document.createElement('button');
+          submitButton.type = 'submit';
+          submitButton.textContent = `Call ${tool.name}`;
+
+          const resultContainer = document.createElement('div');
+          resultContainer.className = 'tool-result';
+          resultContainer.id = `${tool.name}-result`;
+          resultContainer.textContent = 'Result will appear here';
+
+          toolForm.appendChild(argsContainer);
+          toolForm.appendChild(submitButton);
+          toolBody.appendChild(toolForm);
+          toolBody.appendChild(resultContainer);
+          toolCard.appendChild(toolBody);
+
+          // Handle form submission
+          toolForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            if (!connected) {
+              addLogEntry('Not connected to server. Cannot call tool.', 'error');
+              return;
+            }
+
+            const formData = new FormData(e.target);
+            const args = {};
+
+            for (const [key, value] of formData.entries()) {
+              // Convert values to appropriate types
+              const prop = tool.inputSchema.properties[key];
+              if (prop.type === 'number') {
+                args[key] = Number(value);
+              } else if (prop.type === 'boolean') {
+                args[key] = value === 'on';
+              } else {
+                args[key] = value;
+              }
+            }
+
+            const message = {
+              id: `call-tool-${Date.now()}`,
+              type: 'call_tool',
+              tool: {
+                name: tool.name,
+                arguments: args,
+              },
+            };
+
+            resultContainer.textContent = 'Calling tool...';
+            addLogEntry(`Calling tool ${tool.name} with args: ${JSON.stringify(args)}`);
+
+            try {
+              // Send message using fetch since EventSource is read-only
+              await fetch(serverUrl.value, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(message),
+              });
+            } catch (error) {
+              resultContainer.textContent = `Error: ${error.message}`;
+              addLogEntry(`Error calling tool ${tool.name}: ${error.message}`, 'error');
+            }
+          });
+
+          toolsContainer.appendChild(toolCard);
+        });
+      }
+
+      // Connect to server
+      connectionForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        // Close existing connection if any
+        if (eventSource) {
+          eventSource.close();
+          updateConnectionStatus('disconnected', 'Disconnected');
+        }
+
+        try {
+          updateConnectionStatus('connecting', 'Connecting...');
+
+          // Connect to server
+          eventSource = new EventSource(serverUrl.value);
+
+          // Handle connection open
+          eventSource.onopen = () => {
+            updateConnectionStatus('connected', 'Connected');
+            updateServerInfo();
+          };
+
+          // Handle messages
+          eventSource.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              addLogEntry(`Received message: ${event.data.substring(0, 100)}${event.data.length > 100 ? '...' : ''}`);
+
+              // Handle list_tools_response
+              if (data.type === 'list_tools_response') {
+                tools = data.tools || [];
+                addLogEntry(`Received ${tools.length} tools from server`, 'success');
+                renderTools();
+              }
+
+              // Handle call_tool_response
+              if (data.type === 'call_tool_response') {
+                // Find the tool that was called
+                const toolName = data.id.replace('call-tool-', '').split('-')[0];
+                const resultContainer = document.getElementById(`${toolName}-result`);
+
+                if (resultContainer) {
+                  resultContainer.textContent = JSON.stringify(data.result, null, 2);
+                  addLogEntry(`Received result for tool ${toolName}`, 'success');
+                }
+              }
+            } catch (error) {
+              addLogEntry(`Error parsing message: ${error.message}`, 'error');
+            }
+          };
+
+          // Handle errors
+          eventSource.onerror = (error) => {
+            updateConnectionStatus('disconnected', 'Connection error');
+            addLogEntry(`Connection error: ${JSON.stringify(error)}`, 'error');
+          };
+        } catch (error) {
+          updateConnectionStatus('disconnected', 'Connection failed');
+          addLogEntry(`Error connecting to server: ${error.message}`, 'error');
+        }
+      });
+    </script>
+  </body>
+</html>

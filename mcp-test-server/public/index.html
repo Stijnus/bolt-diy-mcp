@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP Test Client</title>
+    <style>
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans',
+          'Helvetica Neue', sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        line-height: 1.6;
+      }
+      h1 {
+        color: #333;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+      }
+      .tool-section {
+        margin-bottom: 30px;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        background-color: #f9f9f9;
+      }
+      .tool-section h2 {
+        margin-top: 0;
+      }
+      .form-group {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      .result {
+        margin-top: 15px;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: #fff;
+        min-height: 50px;
+      }
+      .error {
+        color: red;
+      }
+      .success {
+        color: green;
+      }
+      pre {
+        background-color: #f5f5f5;
+        padding: 10px;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>MCP Test Client</h1>
+
+    <div id="connection-status" class="tool-section">
+      <h2>Connection Status</h2>
+      <div class="form-group">
+        <label for="server-url">MCP Server URL</label>
+        <input type="text" id="server-url" value="http://localhost:3001/sse" />
+      </div>
+      <button id="connect-button">Connect</button>
+      <div id="connection-result" class="result"></div>
+    </div>
+
+    <div id="hello-tool" class="tool-section">
+      <h2>Hello Tool</h2>
+      <div class="form-group">
+        <label for="hello-name">Name</label>
+        <input type="text" id="hello-name" value="World" />
+      </div>
+      <button id="hello-button">Call Hello Tool</button>
+      <div id="hello-result" class="result"></div>
+    </div>
+
+    <div id="calculator-tool" class="tool-section">
+      <h2>Calculator Tool</h2>
+      <div class="form-group">
+        <label for="calculator-operation">Operation</label>
+        <select id="calculator-operation">
+          <option value="add">Add</option>
+          <option value="subtract">Subtract</option>
+          <option value="multiply">Multiply</option>
+          <option value="divide">Divide</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="calculator-a">First Number</label>
+        <input type="number" id="calculator-a" value="5" />
+      </div>
+      <div class="form-group">
+        <label for="calculator-b">Second Number</label>
+        <input type="number" id="calculator-b" value="3" />
+      </div>
+      <button id="calculator-button">Call Calculator Tool</button>
+      <div id="calculator-result" class="result"></div>
+    </div>
+
+    <div id="weather-tool" class="tool-section">
+      <h2>Weather Tool</h2>
+      <div class="form-group">
+        <label for="weather-location">Location</label>
+        <input type="text" id="weather-location" value="New York" />
+      </div>
+      <button id="weather-button">Call Weather Tool</button>
+      <div id="weather-result" class="result"></div>
+    </div>
+
+    <script type="module">
+      // Import MCP SDK from CDN
+      import { Client } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/sdk@0.1.0/dist/client/index.js';
+      import { SSEClientTransport } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/sdk@0.1.0/dist/client/sse.js';
+
+      let client = null;
+
+      // Connect to MCP server
+      document.getElementById('connect-button').addEventListener('click', async () => {
+        const connectionResult = document.getElementById('connection-result');
+        connectionResult.innerHTML = 'Connecting...';
+
+        try {
+          const serverUrl = document.getElementById('server-url').value;
+          const url = new URL(serverUrl);
+          const transport = new SSEClientTransport(url);
+
+          client = new Client({
+            name: 'browser-test-client',
+            version: '1.0.0',
+          });
+
+          await client.connect(transport);
+
+          const toolList = await client.listTools();
+          const toolNames = toolList.tools.map((tool) => tool.name);
+
+          connectionResult.innerHTML = `
+          <span class="success">Connected successfully!</span>
+          <p>Available tools: ${toolNames.join(', ')}</p>
+        `;
+        } catch (error) {
+          connectionResult.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+          console.error('Connection error:', error);
+        }
+      });
+
+      // Hello tool
+      document.getElementById('hello-button').addEventListener('click', async () => {
+        const helloResult = document.getElementById('hello-result');
+
+        if (!client) {
+          helloResult.innerHTML = '<span class="error">Please connect to the server first</span>';
+          return;
+        }
+
+        helloResult.innerHTML = 'Calling hello tool...';
+
+        try {
+          const name = document.getElementById('hello-name').value;
+          const result = await client.callTool({
+            name: 'hello',
+            arguments: { name },
+          });
+
+          helloResult.innerHTML = `
+          <span class="success">Success!</span>
+          <pre>${JSON.stringify(result, null, 2)}</pre>
+        `;
+        } catch (error) {
+          helloResult.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+          console.error('Hello tool error:', error);
+        }
+      });
+
+      // Calculator tool
+      document.getElementById('calculator-button').addEventListener('click', async () => {
+        const calculatorResult = document.getElementById('calculator-result');
+
+        if (!client) {
+          calculatorResult.innerHTML = '<span class="error">Please connect to the server first</span>';
+          return;
+        }
+
+        calculatorResult.innerHTML = 'Calling calculator tool...';
+
+        try {
+          const operation = document.getElementById('calculator-operation').value;
+          const a = parseFloat(document.getElementById('calculator-a').value);
+          const b = parseFloat(document.getElementById('calculator-b').value);
+
+          const result = await client.callTool({
+            name: 'calculator',
+            arguments: { operation, a, b },
+          });
+
+          calculatorResult.innerHTML = `
+          <span class="success">Success!</span>
+          <pre>${JSON.stringify(result, null, 2)}</pre>
+        `;
+        } catch (error) {
+          calculatorResult.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+          console.error('Calculator tool error:', error);
+        }
+      });
+
+      // Weather tool
+      document.getElementById('weather-button').addEventListener('click', async () => {
+        const weatherResult = document.getElementById('weather-result');
+
+        if (!client) {
+          weatherResult.innerHTML = '<span class="error">Please connect to the server first</span>';
+          return;
+        }
+
+        weatherResult.innerHTML = 'Calling weather tool...';
+
+        try {
+          const location = document.getElementById('weather-location').value;
+          const result = await client.callTool({
+            name: 'weather',
+            arguments: { location },
+          });
+
+          weatherResult.innerHTML = `
+          <span class="success">Success!</span>
+          <pre>${JSON.stringify(result, null, 2)}</pre>
+        `;
+        } catch (error) {
+          weatherResult.innerHTML = `<span class="error">Error: ${error.message}</span>`;
+          console.error('Weather tool error:', error);
+        }
+      });
+    </script>
+  </body>
+</html>
