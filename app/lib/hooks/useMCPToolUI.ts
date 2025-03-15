@@ -1,18 +1,27 @@
 /**
- * Hooks for working with MCP tools in components
+ * Hooks for processing MCP tool content and UI elements
+ * This file contains hooks for handling the display and analysis of MCP tool results in the UI.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { createScopedLogger } from '~/utils/logger';
 
-const logger = createScopedLogger('useMCPTools');
+const logger = createScopedLogger('useMCPToolUI');
 
 /**
  * Hook that processes MCP tool elements into styled components
+ * Enhances tool-result and tool-error elements with formatting and styling.
+ *
  * @param content Content that may contain tool-result or tool-error elements
  * @returns Processed content with tool elements enhanced
+ *
+ * @example
+ * ```tsx
+ * const content = '<tool-result>{"data": "example"}</tool-result>';
+ * const processedContent = useMCPToolUIProcessor(content);
+ * ```
  */
-export function useMCPToolsProcessor(content: string): string {
+export function useMCPToolUIProcessor(content: string): string {
   const [processedContent, setProcessedContent] = useState<string>(content);
 
   useEffect(() => {
@@ -25,7 +34,7 @@ export function useMCPToolsProcessor(content: string): string {
 
         // Process tool-result elements
         const toolResults = tempDiv.querySelectorAll('tool-result');
-        toolResults.forEach(element => {
+        toolResults.forEach((element) => {
           if (!element.hasAttribute('processed')) {
             // Mark as processed to avoid re-processing
             element.setAttribute('processed', 'true');
@@ -43,9 +52,10 @@ export function useMCPToolsProcessor(content: string): string {
 
         // Process tool-error elements
         const toolErrors = tempDiv.querySelectorAll('tool-error');
-        toolErrors.forEach(element => {
+        toolErrors.forEach((element) => {
           if (!element.hasAttribute('processed')) {
             element.setAttribute('processed', 'true');
+
             // No special processing needed for errors
           }
         });
@@ -86,7 +96,7 @@ export function useHasMCPToolsReferences(message: string): boolean {
       ];
 
       // Check if any pattern matches
-      const hasMCP = mcpPatterns.some(pattern => pattern.test(message));
+      const hasMCP = mcpPatterns.some((pattern) => pattern.test(message));
       setHasMCPReferences(hasMCP);
     };
 
@@ -113,7 +123,7 @@ export function useExtractMCPToolCalls(message: string): {
       const TOOL_REGEX = /<tool\s+name\s*=\s*["']([^"']+)["']\s+input\s*=\s*["']([^"']*)["']\s*>([\s\S]*?)<\/tool>/g;
       const matches = Array.from(message.matchAll(TOOL_REGEX));
 
-      const extractedCalls = matches.map(match => {
+      const extractedCalls = matches.map((match) => {
         const [, toolName, input, description] = match;
         return {
           toolName,
@@ -132,7 +142,7 @@ export function useExtractMCPToolCalls(message: string): {
 }
 
 export default {
-  useMCPToolsProcessor,
+  useMCPToolUIProcessor,
   useHasMCPToolsReferences,
   useExtractMCPToolCalls,
 };

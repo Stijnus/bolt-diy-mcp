@@ -3,6 +3,9 @@
  * Central export point for MCP functionality
  */
 
+import type { Tool } from 'ai';
+import type { MCPServerRegistry as MCPServerRegistryType } from './registry';
+
 // Export new modular architecture components
 export type { IMCPServerAdapter, MCPConfig, MCPServerConfig, MCPTool, ConnectionStatus } from './config';
 export { MCPServerRegistry, MCPRegistryEventType, type MCPRegistryEvent } from './registry';
@@ -39,6 +42,16 @@ export { runRegistryExample, exampleUsage } from './examples/registry-example';
 export { WeatherApiAdapter, createCustomAdapter, MinimalAdapter } from './examples/create-adapter';
 
 /**
+ * Options for initializing the MCP registry
+ */
+export interface MCPRegistryOptions {
+  /**
+   * Environment variables to use for initialization
+   */
+  env?: Record<string, string | undefined>;
+}
+
+/**
  * Initialize MCP during application startup
  * @param env Environment variables
  * @returns Promise that resolves when MCP is initialized
@@ -50,18 +63,16 @@ export async function setupMCP(env: Record<string, string | undefined> = {}): Pr
 
 /**
  * Initialize MCP using the new modular architecture
- * @param env Environment variables
+ * @param _options Options for initialization (currently unused)
  * @returns The initialized registry instance
  */
-export async function initializeMCPWithRegistry(
-  env: Record<string, string | undefined> = {},
-): Promise<MCPServerRegistry> {
+export async function initializeMCPRegistry(_options: MCPRegistryOptions = {}): Promise<MCPServerRegistryType> {
   const { getStoredMCPServers } = await import('./storage');
   const { createServerAdapter } = await import('./adapters');
-  const { MCPServerRegistry } = await import('./registry');
+  const { MCPServerRegistry: MCP_SERVER_REGISTRY } = await import('./registry');
 
   // Get registry instance
-  const registry = MCPServerRegistry.getInstance();
+  const registry = MCP_SERVER_REGISTRY.getInstance();
 
   // Clear any existing servers
   registry.clear();
@@ -72,8 +83,9 @@ export async function initializeMCPWithRegistry(
   // Register each server with the appropriate adapter
   for (const server of storedServers) {
     if (server.enabled) {
+      const id = server.auth?.type === 'github' ? 'github' : server.name.toLowerCase();
       const adapter = createServerAdapter(
-        server.name.toLowerCase(), // ID
+        id, // ID
         server.name, // Display name
         server.baseUrl,
         server.enabled,
@@ -98,6 +110,7 @@ export async function initializeMCPWithRegistry(
 export async function getMCPToolsDescription(): Promise<string> {
   try {
     // Get the tool factory
+    const { getMCPBootstrapPromise } = await import('./bootstrap');
     const { toolFactory } = await getMCPBootstrapPromise();
 
     // Generate tool description
@@ -107,5 +120,24 @@ export async function getMCPToolsDescription(): Promise<string> {
     logger.error('Failed to get MCP tool descriptions:', error);
 
     return '';
+  }
+}
+
+/**
+ * Create MCP toolset
+ * @returns The created toolset or null if creation fails
+ */
+export async function createMCPToolset(): Promise<Record<string, Tool> | null> {
+  try {
+    const { getMCPBootstrapPromise } = await import('./bootstrap');
+    const { toolFactory } = await getMCPBootstrapPromise();
+
+    // Create and return tools using the factory
+    return await toolFactory.createTools();
+  } catch (error) {
+    const logger = await import('~/utils/logger').then((m) => m.createScopedLogger('createMCPToolset'));
+    logger.error('Failed to create MCP toolset:', error);
+
+    return null;
   }
 }

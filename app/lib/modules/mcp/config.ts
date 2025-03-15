@@ -8,8 +8,8 @@
 export interface MCPServerConfig {
   baseUrl: string;
   auth?: {
+    type?: 'github' | 'anthropic' | string;
     token?: string;
-    type?: string;
   };
 }
 
@@ -80,3 +80,35 @@ export interface IMCPServerAdapter {
    */
   updateConfig(config: Partial<MCPServerConfig>): void;
 }
+
+export interface MCPServer {
+  id: string;
+  name: string;
+  baseUrl: string;
+  enabled: boolean;
+  connected: boolean;
+  lastChecked: Date;
+  toolCount: number;
+  statusMessage: string;
+  config: MCPServerConfig;
+}
+
+export const DEFAULT_MCP_SERVERS: MCPServer[] = [
+  {
+    id: 'github',
+    name: 'GitHub',
+    baseUrl: 'https://api.github.com',
+    enabled: true,
+    connected: false,
+    lastChecked: new Date(),
+    toolCount: 0,
+    statusMessage: 'Not connected',
+    config: {
+      baseUrl: 'https://api.github.com',
+      auth: {
+        type: 'github',
+        token: '', // User will need to provide their GitHub token
+      },
+    },
+  },
+];

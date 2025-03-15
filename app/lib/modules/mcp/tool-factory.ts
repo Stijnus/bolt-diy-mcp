@@ -8,6 +8,7 @@ import { createScopedLogger } from '~/utils/logger';
 import { MCPServerRegistry } from './registry';
 import type { MCPTool } from './config';
 import { JSONSchemaToZod } from '@dmitryrechkin/json-schema-to-zod';
+import { z } from 'zod';
 
 const logger = createScopedLogger('MCPToolFactory');
 
@@ -70,13 +71,23 @@ export class MCPToolFactory {
           const toolName = this._getToolName(server.id, tool.name);
 
           try {
-            // Convert JSON Schema to Zod schema
-            const zodSchema = JSONSchemaToZod.convert(tool.inputSchema || { type: 'object', properties: {} });
+            /*
+             * Create a Zod schema from the JSON schema.
+             * JSONSchemaToZod lacks proper TypeScript types but functions correctly.
+             */
+            const zodSchemaString = JSONSchemaToZod.convert(tool.inputSchema || { type: 'object', properties: {} });
+
+            /*
+             * Convert the schema string to a Zod schema object.
+             * Using Function constructor instead of eval for better security.
+             */
+            const zodSchema = new Function('z', `return ${zodSchemaString}`)(z);
+            const parsedSchema = zodSchema;
 
             // Create the AI SDK tool
             tools[toolName] = {
               description: tool.description || `Tool from ${server.name} MCP server`,
-              parameters: zodSchema,
+              parameters: parsedSchema,
               execute: async (args) => {
                 const resultPromise = (async () => {
                   try {
@@ -165,10 +176,10 @@ export class MCPToolFactory {
             description += '  Parameters:\n';
 
             for (const [paramName, param] of Object.entries(tool.inputSchema.properties || {})) {
-              // @ts-ignore
+              // @ts-ignore - JSON Schema type doesn't include required field in TypeScript
               const required = tool.inputSchema.required?.includes(paramName) ? ' (required)' : '';
 
-              // @ts-ignore
+              // @ts-ignore - JSON Schema parameter type is not fully typed
               description += `  - ${paramName}${required}: ${param.description || param.type}\n`;
             }
           }

@@ -32,9 +32,23 @@ export function createServerAdapter(
   config: Partial<MCPServerConfig> = {},
 ): BaseMCPServerAdapter {
   // Check if this is a GitHub server
-  if (id.toLowerCase() === 'github' || name.toLowerCase() === 'github' || config.auth?.type === 'github') {
-    logger.info(`Creating GitHub adapter for server: ${name}`);
-    return new GitHubMCPServerAdapter(id, name, baseUrl, enabled, config);
+  if (
+    id.toLowerCase() === 'github' ||
+    name.toLowerCase() === 'github' ||
+    baseUrl.includes('github') ||
+    config.auth?.type === 'github'
+  ) {
+    logger.info(`Creating GitHub adapter for server: ${name}`, {
+      id,
+      name,
+      baseUrl,
+      hasToken: !!config?.auth?.token,
+      tokenLength: config?.auth?.token ? config.auth.token.length : 0,
+      tokenPrefix: config?.auth?.token ? config.auth.token.substring(0, 8) + '...' : undefined,
+    });
+
+    // Always use 'github' as the ID for GitHub adapters to ensure consistency
+    return new GitHubMCPServerAdapter('github', name, baseUrl, enabled, config);
   }
 
   // Default to standard adapter

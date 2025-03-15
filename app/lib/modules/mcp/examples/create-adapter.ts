@@ -4,8 +4,8 @@
  */
 
 import { createScopedLogger } from '~/utils/logger';
-import { ConnectionStatus, IMCPServerAdapter, MCPServerConfig, MCPTool } from '../config';
-import { BaseMCPServerAdapter } from '../adapters';
+import type { ConnectionStatus, IMCPServerAdapter, MCPServerConfig, MCPTool } from '~/lib/modules/mcp/config';
+import { BaseMCPServerAdapter } from '~/lib/modules/mcp/adapters';
 
 const logger = createScopedLogger('MCPAdapterTutorial');
 
@@ -152,6 +152,10 @@ export class WeatherApiAdapter extends BaseMCPServerAdapter {
     }
 
     try {
+      let currentResponse;
+      let forecastResponse;
+      const days = args.days || 3; // Default to 3 days forecast
+
       switch (toolName) {
         case 'get_current_weather':
           if (!args.location) {
@@ -159,7 +163,7 @@ export class WeatherApiAdapter extends BaseMCPServerAdapter {
           }
 
           // Make API request
-          const currentResponse = await fetch(
+          currentResponse = await fetch(
             `${this.baseUrl}/current.json?key=${this._apiKey}&q=${encodeURIComponent(args.location)}`,
           );
 
@@ -174,10 +178,8 @@ export class WeatherApiAdapter extends BaseMCPServerAdapter {
             throw new Error('Location is required');
           }
 
-          const days = args.days || 3; // Default to 3 days forecast
-
           // Make API request
-          const forecastResponse = await fetch(
+          forecastResponse = await fetch(
             `${this.baseUrl}/forecast.json?key=${this._apiKey}&q=${encodeURIComponent(args.location)}&days=${days}`,
           );
 
@@ -203,11 +205,13 @@ export class WeatherApiAdapter extends BaseMCPServerAdapter {
 export async function createCustomAdapter() {
   try {
     // Import required modules
-    const { MCPServerRegistry, MCPToolFactory } = await import('../index');
+    const { MCPServerRegistry: MCP_SERVER_REGISTRY, MCPToolFactory: MCP_TOOL_FACTORY } = await import(
+      '~/lib/modules/mcp'
+    );
 
     // Get registry and tool factory instances
-    const registry = MCPServerRegistry.getInstance();
-    const toolFactory = MCPToolFactory.getInstance();
+    const registry = MCP_SERVER_REGISTRY.getInstance();
+    const toolFactory = MCP_TOOL_FACTORY.getInstance();
 
     // Create the weather API adapter
     const weatherAdapter = new WeatherApiAdapter('weather', 'Weather API', 'https://api.weatherapi.com/v1', true, {

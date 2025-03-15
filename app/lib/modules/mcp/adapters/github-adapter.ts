@@ -4,21 +4,14 @@
  */
 
 import { createScopedLogger } from '~/utils/logger';
-import type { ConnectionStatus, MCPTool } from '~/lib/modules/mcp/config';
+import type { ConnectionStatus, MCPTool, MCPServerConfig } from '~/lib/modules/mcp/config';
 import { BaseMCPServerAdapter } from './base-adapter';
 
 const logger = createScopedLogger('MCPGitHubAdapter');
 
-/**
- * GitHub API client interface
- */
-interface GitHubClient {
-  getUser(): Promise<any>;
-  listRepositories(): Promise<any[]>;
-  searchRepositories(query: string): Promise<any>;
-  getRepositoryContents(owner: string, repo: string, path?: string): Promise<any>;
-  createRepository(name: string, options?: any): Promise<any>;
-  request<T>(endpoint: string, options?: RequestInit): Promise<T>;
+interface GitHubErrorResponse {
+  message?: string;
+  documentation_url?: string;
 }
 
 /**
@@ -39,9 +32,64 @@ export class GitHubMCPServerAdapter extends BaseMCPServerAdapter {
   ) {
     super(id, name, baseUrl, enabled, config);
 
-    // Extract token from config if available
-    if (config.auth?.token && config.auth?.type === 'github') {
+    // Extract token from config using multiple possible paths
+    if (config.auth?.token) {
       this._token = config.auth.token;
+      logger.info('GitHub token provided from config.auth.token');
+    } else if (config.token) {
+      // Try direct token property
+      this._token = config.token;
+      logger.info('GitHub token provided from config.token');
+    } else {
+      // Check for environment variables - this is a common pattern
+      const envToken =
+        typeof process !== 'undefined' && process.env
+          ? process.env.GITHUB_TOKEN || process.env.MCP_GITHUB_TOKEN
+          : undefined;
+
+      if (envToken) {
+        this._token = envToken;
+        logger.info('GitHub token provided from environment variable');
+      } else {
+        // Try to read from localStorage directly
+        try {
+          if (typeof window !== 'undefined' && window.localStorage) {
+            const storedData = window.localStorage.getItem('mcp_servers');
+
+            if (storedData) {
+              const servers = JSON.parse(storedData);
+              const githubServer = servers.find(
+                (s: any) =>
+                  s.name.toLowerCase() === 'github' ||
+                  s.baseUrl.includes('github') ||
+                  (s.auth && s.auth.type === 'github'),
+              );
+
+              if (githubServer && githubServer.auth && githubServer.auth.token) {
+                this._token = githubServer.auth.token;
+                logger.info('GitHub token provided from localStorage');
+              }
+            }
+          }
+        } catch (e) {
+          logger.error('Error trying to read token from localStorage', e);
+        }
+
+        // If we still don't have a token, log a warning
+        if (!this._token) {
+          logger.warn('No GitHub token found in configuration or environment variables');
+        }
+
+        if (!this._token) {
+          // Log the missing token info for debugging
+          logger.warn('No GitHub token found in MCP server configuration', {
+            id,
+            name,
+            baseUrl,
+            config: JSON.stringify(config, null, 2),
+          });
+        }
+      }
     }
   }
 
@@ -72,6 +120,111 @@ export class GitHubMCPServerAdapter extends BaseMCPServerAdapter {
     } catch (error) {
       logger.error(`Failed to initialize GitHub MCP adapter:`, error);
       this._connected = false;
+    }
+  }
+
+  /**
+   * Test the connection to this server
+   */
+  async testConnection(): Promise<ConnectionStatus> {
+    // Double-check if token is available
+    if (!this._token) {
+      logger.warn('No GitHub token found when testing connection - attempting to retrieve');
+
+      // Try to read from localStorage again
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const storedData = window.localStorage.getItem('mcp_servers');
+
+          if (storedData) {
+            const servers = JSON.parse(storedData);
+            const githubServer = servers.find(
+              (s: any) =>
+                s.name.toLowerCase() === 'github' ||
+                s.baseUrl.includes('github') ||
+                (s.auth && s.auth.type === 'github'),
+            );
+
+            if (githubServer && githubServer.auth && githubServer.auth.token) {
+              this._token = githubServer.auth.token;
+              logger.info('GitHub token retrieved from localStorage during connection test');
+            }
+          }
+        }
+      } catch (e) {
+        logger.error('Error trying to read token from localStorage during connection test', e);
+      }
+
+      // Try to get token from config again
+      if (!this._token && this._config.auth?.token) {
+        this._token = this._config.auth.token;
+        logger.info('GitHub token retrieved from config during connection test');
+      }
+
+      if (!this._token) {
+        return {
+          success: false,
+          message: 'No GitHub token found. Please configure a valid token.',
+        };
+      }
+    }
+
+    // Final check and warning
+    if (!this._token) {
+      logger.warn('No GitHub token found in MCP server configuration when testing connection', {
+        id: this.id,
+        name: this.name,
+        baseUrl: this.baseUrl,
+        configHasAuth: !!this._config.auth,
+        configAuthHasToken: !!(this._config.auth && this._config.auth.token),
+        tokenPrefix: this._config.auth?.token ? this._config.auth.token.substring(0, 8) + '...' : undefined,
+      });
+
+      return {
+        success: false,
+        message: 'GitHub token not provided',
+      };
+    }
+
+    try {
+      // Create an abort controller with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const response = await fetch(`${this.baseUrl}/user`, {
+        headers: {
+          Authorization: `Bearer ${this._token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+          'User-Agent': 'MCP-GitHub-Adapter',
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => null)) as GitHubErrorResponse | null;
+
+        return {
+          success: false,
+          message: `GitHub API error (${response.status}): ${errorData?.message || (await response.text()) || 'Unknown error'}`,
+        };
+      }
+
+      // Store user info for later use
+      this._authenticatedUser = await response.json();
+
+      return {
+        success: true,
+        message: `Connected to GitHub API as ${this._authenticatedUser.login}`,
+      };
+    } catch (error) {
+      logger.error('GitHub connection test failed:', error);
+      return {
+        success: false,
+        message: `Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      };
     }
   }
 
@@ -186,61 +339,7 @@ export class GitHubMCPServerAdapter extends BaseMCPServerAdapter {
   }
 
   /**
-   * Test the connection to this server
-   */
-  async testConnection(): Promise<ConnectionStatus> {
-    if (!this._token) {
-      return {
-        success: false,
-        message: 'GitHub token not provided',
-      };
-    }
-
-    try {
-      // Create an abort controller with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-      const response = await fetch('https://api.github.com/user', {
-        headers: {
-          Authorization: `token ${this._token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        return {
-          success: false,
-          message: `GitHub API error (${response.status}): ${errorText}`,
-        };
-      }
-
-      // Store user info for later use
-      this._authenticatedUser = await response.json();
-
-      return {
-        success: true,
-        message: `Connected to GitHub API as ${this._authenticatedUser.login}`,
-      };
-    } catch (error) {
-      logger.error('GitHub connection test failed:', error);
-      return {
-        success: false,
-        message: `Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      };
-    }
-  }
-
-  /**
    * Make a request to the GitHub API
-   * @param endpoint The API endpoint (e.g., '/user/repos')
-   * @param options Fetch options
-   * @returns The response data
    */
   private async _request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     if (!this._token) {
@@ -254,38 +353,31 @@ export class GitHubMCPServerAdapter extends BaseMCPServerAdapter {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const headers = new Headers(options.headers || {});
-        headers.set('Authorization', `token ${this._token}`);
-        headers.set('Accept', 'application/vnd.github+json');
-        headers.set('X-GitHub-Api-Version', '2022-11-28');
+        headers.set('Authorization', `Bearer ${this._token}`);
+        headers.set('Accept', 'application/vnd.github.v3+json');
+        headers.set('Content-Type', 'application/json');
+        headers.set('User-Agent', 'MCP-GitHub-Adapter');
 
         const response = await fetch(url, {
           ...options,
           headers,
         });
 
-        // Check for rate limiting
-        if (response.status === 403 && response.headers.get('X-RateLimit-Remaining') === '0') {
-          const resetTime = response.headers.get('X-RateLimit-Reset');
-          const resetDate = resetTime ? new Date(parseInt(resetTime) * 1000) : new Date();
-
-          throw new Error(`GitHub API rate limit exceeded. Resets at ${resetDate.toLocaleTimeString()}`);
-        }
-
         if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`GitHub API error (${response.status}): ${errorText}`);
+          const errorData = (await response.json().catch(() => null)) as GitHubErrorResponse | null;
+          const errorMessage = errorData?.message || (await response.text()) || 'Unknown error';
+          throw new Error(`GitHub API error (${response.status}): ${errorMessage}`);
         }
 
-        return response.json() as Promise<T>;
+        const responseData = await response.json();
+        logger.debug('GitHub API response:', responseData);
+
+        return responseData as T;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-
-        // Log the error
         logger.error(`GitHub API request attempt ${attempt}/${maxRetries} failed:`, error);
 
-        // If this is not the last attempt, wait before retrying
         if (attempt < maxRetries) {
-          // Exponential backoff: 1s, 2s, 4s, etc.
           const backoffTime = Math.pow(2, attempt - 1) * 1000;
           logger.info(`Retrying GitHub API request in ${backoffTime}ms...`);
           await new Promise((resolve) => setTimeout(resolve, backoffTime));
@@ -293,8 +385,7 @@ export class GitHubMCPServerAdapter extends BaseMCPServerAdapter {
       }
     }
 
-    // If we've exhausted all retries, throw the last error
-    throw new Error(`Failed after ${maxRetries} attempts. Last error: ${lastError?.message || 'Unknown error'}`);
+    throw lastError || new Error(`Failed after ${maxRetries} attempts`);
   }
 
   /**
@@ -303,8 +394,23 @@ export class GitHubMCPServerAdapter extends BaseMCPServerAdapter {
    * @param args Arguments for the tool
    */
   async executeToolCall(toolName: string, args: any): Promise<any> {
+    logger.info(`GitHub adapter executing tool: ${toolName}`, {
+      args: JSON.stringify(args),
+      token_available: !!this._token,
+      token_length: this._token ? this._token.length : 0,
+      token_prefix: this._token ? this._token.substring(0, 8) + '...' : undefined,
+    });
+
+    // Validate token availability
     if (!this._token) {
-      throw new Error('GitHub token not available');
+      logger.error('GitHub token not available for tool execution', {
+        toolName,
+        args: JSON.stringify(args),
+        adapter_id: this.id,
+        adapter_name: this.name,
+        baseUrl: this.baseUrl,
+      });
+      throw new Error('GitHub token not available. Please configure a valid token in the MCP server settings.');
     }
 
     try {
@@ -367,9 +473,18 @@ export class GitHubMCPServerAdapter extends BaseMCPServerAdapter {
       }
     } catch (error) {
       logger.error(`Error executing GitHub tool ${toolName}:`, error);
-      throw new Error(
-        `Failed to execute GitHub tool ${toolName}: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      throw error;
+    }
+  }
+
+  updateConfig(config: Partial<MCPServerConfig>): void {
+    // Update base configuration
+    super.updateConfig(config);
+
+    // Update token if auth configuration changes
+    if (config.auth?.token) {
+      this._token = config.auth.token;
+      logger.info('GitHub token updated');
     }
   }
 }

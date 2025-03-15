@@ -5,11 +5,12 @@
  */
 
 import { createScopedLogger } from '~/utils/logger';
-import { MCPServerRegistry, MCPRegistryEventType, MCPRegistryEvent } from './registry';
+import { MCPServerRegistry, MCPRegistryEventType } from './registry';
+import type { MCPRegistryEvent } from './registry';
 import { MCPToolFactory } from './tool-factory';
-import { ConnectionStatus, IMCPServerAdapter } from './config';
+import type { IMCPServerAdapter } from './config';
 import { createServerAdapter } from './adapters';
-import { saveMCPServersToStorage, getStoredMCPServers } from './storage';
+import { saveMCPServersToStorage } from './storage';
 
 const logger = createScopedLogger('MCPRuntimeManager');
 
@@ -184,18 +185,27 @@ export class MCPRuntimeManager {
     // Stop existing health check if running
     this.stopHealthChecks();
 
-    // Start global health check interval
-    this._globalHealthCheckInterval = window.setInterval(async () => {
-      await this._checkAllServersHealth();
-    }, interval);
+    // Start global health check interval - check if window exists (client-side only)
+    if (typeof window !== 'undefined') {
+      this._globalHealthCheckInterval = window.setInterval(async () => {
+        await this._checkAllServersHealth();
+      }, interval);
 
-    logger.info(`Started global health check with interval ${interval}ms`);
+      logger.info(`Started global health check with interval ${interval}ms`);
+    } else {
+      logger.info(`Skipped global health check - running in server context`);
+    }
   }
 
   /**
    * Stop all health checks
    */
   stopHealthChecks(): void {
+    // Only run in browser context
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     // Clear global interval
     if (this._globalHealthCheckInterval !== null) {
       clearInterval(this._globalHealthCheckInterval);
@@ -219,12 +229,16 @@ export class MCPRuntimeManager {
     // Stop existing check if running
     this._stopServerHealthCheck(serverId);
 
-    // Start new interval
-    this._healthCheckIntervals[serverId] = window.setInterval(async () => {
-      await this._checkServerHealth(serverId);
-    }, interval);
+    // Start new interval - check if window exists (client-side only)
+    if (typeof window !== 'undefined') {
+      this._healthCheckIntervals[serverId] = window.setInterval(async () => {
+        await this._checkServerHealth(serverId);
+      }, interval);
 
-    logger.debug(`Started health check for server ${serverId} with interval ${interval}ms`);
+      logger.debug(`Started health check for server ${serverId} with interval ${interval}ms`);
+    } else {
+      logger.debug(`Skipped health check for server ${serverId} - running in server context`);
+    }
   }
 
   /**
@@ -232,7 +246,7 @@ export class MCPRuntimeManager {
    * @param serverId Server ID
    */
   private _stopServerHealthCheck(serverId: string): void {
-    if (this._healthCheckIntervals[serverId]) {
+    if (typeof window !== 'undefined' && this._healthCheckIntervals[serverId]) {
       clearInterval(this._healthCheckIntervals[serverId]);
       delete this._healthCheckIntervals[serverId];
       logger.debug(`Stopped health check for server ${serverId}`);
@@ -258,67 +272,40 @@ export class MCPRuntimeManager {
    */
   private async _checkServerHealth(serverId: string): Promise<void> {
     const server = this._registry.getServer(serverId);
+    const status = this._serverStatus[serverId];
 
-    if (!server) {
-      logger.warn(`Cannot check health of unknown server: ${serverId}`);
+    if (!server || !status) {
       return;
     }
 
-    if (!this._serverStatus[serverId]) {
-      await this._createServerStatus(server);
-    }
-
-    const previousStatus = { ...this._serverStatus[serverId] };
-    let statusChanged = false;
-
     try {
-      // Update last checked timestamp
-      this._serverStatus[serverId].lastChecked = new Date();
-
-      // Skip check if server is disabled
-      if (!server.enabled) {
-        this._serverStatus[serverId].connected = false;
-        this._serverStatus[serverId].statusMessage = 'Server is disabled';
-
-        return;
-      }
-
-      // Check connection
-      const connectionStatus: ConnectionStatus = await server.testConnection();
+      // Test connection
+      const connectionStatus = await server.testConnection();
+      const tools = await server.getToolDefinitions();
 
       // Update status
-      const wasConnected = this._serverStatus[serverId].connected;
-      this._serverStatus[serverId].connected = connectionStatus.success;
-      this._serverStatus[serverId].statusMessage = connectionStatus.message;
+      status.connected = connectionStatus.success;
+      status.lastChecked = new Date();
+      status.statusMessage = connectionStatus.message;
+      status.toolCount = tools.length;
+      status.errorMessage = undefined;
 
-      // Check if connection status changed
-      if (wasConnected !== connectionStatus.success) {
-        statusChanged = true;
+      // Notify status change
+      this._notifyStatusChange(status);
 
-        if (connectionStatus.success) {
-          logger.info(`Server ${server.name} (${serverId}) is now connected`);
-
-          // If newly connected, get tools
-          const tools = await server.getToolDefinitions();
-          this._serverStatus[serverId].toolCount = tools.length;
-        } else {
-          logger.warn(`Server ${server.name} (${serverId}) is now disconnected: ${connectionStatus.message}`);
-          this._serverStatus[serverId].toolCount = 0;
-        }
-      }
+      logger.debug(
+        `Health check for ${server.name}: ${connectionStatus.success ? 'connected' : 'disconnected'}, ${tools.length} tools available`,
+      );
     } catch (error) {
-      // Update status on error
-      this._serverStatus[serverId].connected = false;
-      this._serverStatus[serverId].errorMessage = error instanceof Error ? error.message : String(error);
-      this._serverStatus[serverId].statusMessage = 'Error checking server health';
+      status.connected = false;
+      status.lastChecked = new Date();
+      status.errorMessage = error instanceof Error ? error.message : String(error);
+      status.toolCount = 0;
 
-      statusChanged = this._serverStatus[serverId].connected !== false;
-      logger.error(`Error checking health of server ${serverId}:`, error);
-    }
+      // Notify status change
+      this._notifyStatusChange(status);
 
-    // Notify status change if needed
-    if (statusChanged || JSON.stringify(previousStatus) !== JSON.stringify(this._serverStatus[serverId])) {
-      this._notifyStatusChange(this._serverStatus[serverId]);
+      logger.error(`Health check failed for ${server.name}:`, error);
     }
   }
 
@@ -398,7 +385,7 @@ export class MCPRuntimeManager {
    */
   async addServer(name: string, baseUrl: string, config: any = {}): Promise<string> {
     // Generate a unique ID (lowercase name)
-    const id = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const id = config.auth?.type === 'github' ? 'github' : name.toLowerCase().replace(/[^a-z0-9]/g, '_');
 
     // Check if a server with this ID already exists
     if (this._registry.getServer(id)) {
@@ -486,6 +473,15 @@ export class MCPRuntimeManager {
       return;
     }
 
+    logger.info(`Updating server ${serverId} with:`, {
+      name: updates.name,
+      baseUrl: updates.baseUrl,
+      hasConfig: !!updates.config,
+      hasToken: !!updates.config?.auth?.token,
+      tokenLength: updates.config?.auth?.token ? updates.config.auth.token.length : 0,
+      tokenPrefix: updates.config?.auth?.token ? updates.config.auth.token.substring(0, 8) + '...' : undefined,
+    });
+
     // Update fields
     if (updates.name) {
       server.name = updates.name;
@@ -496,6 +492,15 @@ export class MCPRuntimeManager {
       server.updateConfig({ baseUrl: updates.baseUrl });
     }
 
+    // Special handling for GitHub token to ensure it's always properly set
+    if (serverId === 'github' && updates.config?.auth?.token) {
+      logger.info(`Setting GitHub token for server ${serverId}`, {
+        tokenLength: updates.config.auth.token.length,
+        tokenPrefix: updates.config.auth.token.substring(0, 8) + '...',
+      });
+    }
+
+    // Update config if provided
     if (updates.config) {
       server.updateConfig(updates.config);
     }
@@ -583,7 +588,7 @@ export class MCPRuntimeManager {
       clearTimeout(timeoutId);
 
       return response.ok;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

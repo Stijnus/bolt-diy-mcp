@@ -19,13 +19,35 @@ interface StoredMCPServer {
 }
 
 /**
+ * Check if localStorage is available (not in SSR)
+ * @returns Whether localStorage is available
+ */
+function isLocalStorageAvailable(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    // Test localStorage access
+    const testKey = '__test__';
+    window.localStorage.setItem(testKey, testKey);
+    window.localStorage.removeItem(testKey);
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Load MCP server configurations from localStorage
  * @returns Environment variables with MCP server configurations
  */
 export function loadMCPServersFromStorage(): Record<string, string> {
   try {
     // Check if localStorage is available (not in SSR)
-    if (typeof localStorage === 'undefined') {
+    if (!isLocalStorageAvailable()) {
+      logger.debug('localStorage not available (server context) - skipping load');
       return {};
     }
 
@@ -74,6 +96,26 @@ export function loadMCPServersFromStorage(): Record<string, string> {
  */
 export function saveMCPServersToStorage(servers: StoredMCPServer[]): boolean {
   try {
+    // Check if localStorage is available (not in SSR)
+    if (!isLocalStorageAvailable()) {
+      logger.debug('localStorage not available (server context) - skipping save');
+      return false;
+    }
+
+    // Debug information about the servers being saved
+    logger.info(`Saving ${servers.length} MCP servers to localStorage`, {
+      serverIds: servers.map((s) => s.name.toLowerCase().replace(/[^a-z0-9]/g, '_')),
+      hasGitHub: servers.some(
+        (s) => s.name.toLowerCase() === 'github' || s.auth?.type === 'github' || s.baseUrl.includes('github'),
+      ),
+      tokens: servers.map((s) => ({
+        name: s.name,
+        hasToken: !!s.auth?.token,
+        tokenLength: s.auth?.token ? s.auth.token.length : 0,
+        tokenPrefix: s.auth?.token ? s.auth.token.substring(0, 8) + '...' : undefined,
+      })),
+    });
+
     const envVars: Record<string, string> = {};
 
     servers.forEach((server) => {
@@ -83,11 +125,14 @@ export function saveMCPServersToStorage(servers: StoredMCPServer[]): boolean {
         // Save auth configuration if present
         if (server.auth?.token) {
           envVars[`MCP_SSE_${server.name.toUpperCase()}_TOKEN`] = server.auth.token;
+          logger.info(`Set token environment variable for ${server.name}`);
         }
       }
     });
 
-    localStorage.setItem('mcp_servers', JSON.stringify(servers));
+    // Save to localStorage
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(servers));
+    logger.info(`Saved ${servers.length} MCP servers to localStorage`);
 
     return true;
   } catch (error: unknown) {
@@ -103,7 +148,8 @@ export function saveMCPServersToStorage(servers: StoredMCPServer[]): boolean {
 export function getStoredMCPServers(): StoredMCPServer[] {
   try {
     // Check if localStorage is available (not in SSR)
-    if (typeof localStorage === 'undefined') {
+    if (!isLocalStorageAvailable()) {
+      logger.debug('localStorage not available (server context) - returning empty array');
       return [];
     }
 

@@ -104,10 +104,19 @@ export async function streamText(props: {
   const mcpTools = await getMCPToolsDescription();
 
   if (mcpTools) {
-    // Add MCP tools information to the beginning of the system prompt
+    // Add MCP tools information to the beginning of the system prompt with explicit instructions
     systemPrompt = `IMPORTANT: You have access to external tools through the Model Context Protocol (MCP).
 
 ${mcpTools}
+
+CRITICAL INSTRUCTION: You MUST use these MCP tools when the user asks for related functionality. For example, if the user asks about GitHub repositories, you MUST use the github_list_repositories tool or github_api tool to fetch the actual data instead of saying you cannot access it. You have a working GitHub API connection and should actively use it for GitHub-related requests.
+
+When using MCP tools, you MUST:
+1. Format your response with the proper tool syntax
+2. Be explicit about using the tool in your response
+3. Show the results from the tool to the user
+
+Do not refuse to use these tools or claim you lack access to external services. The tools are available and working.
 
 ${systemPrompt}`;
   } else {
@@ -155,11 +164,8 @@ ${props.summary}
 
   logger.info(`Sending llm call to ${provider.name} with model ${modelDetails.name}`);
 
-  // Import MCP tool handler
-  const { processToolCalls } = await import('~/lib/modules/mcp');
-
   // Create the stream
-  const stream = await _streamText({
+  const result = await _streamText({
     model: provider.getModelInstance({
       model: modelDetails.name,
       serverEnv,
@@ -172,40 +178,8 @@ ${props.summary}
     ...options,
   });
 
-  // Create a new stream that will post-process LLM responses for MCP tool calls
-  const processedStream = stream.pipeThrough(
-    new TransformStream({
-      transform: async (chunk, controller) => {
-        // Pass through non-text chunks
-        if (typeof chunk !== 'string') {
-          controller.enqueue(chunk);
-          return;
-        }
-
-        try {
-          // Check if the chunk might contain a tool call
-          if (chunk.includes('<tool') && chunk.includes('</tool>')) {
-            // Process tool calls in the chunk
-            const { processedText, toolCalls } = await processToolCalls(chunk);
-
-            // If tool calls were found and processed, use the processed text
-            if (toolCalls.length > 0) {
-              controller.enqueue(processedText);
-              return;
-            }
-          }
-
-          // No tool calls or processing failed, pass through the original chunk
-          controller.enqueue(chunk);
-        } catch (error) {
-          logger.error('Error processing MCP tool calls in stream:', error);
-          controller.enqueue(chunk); // Pass through the original chunk on error
-        }
-      },
-    }),
-  );
-
-  return processedStream;
+  // Return the result directly - it already has the necessary stream handling
+  return result;
 }
 
 /**
@@ -220,7 +194,16 @@ async function getMCPToolsDescription(): Promise<string | null> {
     const toolsDescription = await getMCPToolsDescription();
 
     if (!toolsDescription) {
-      return null;
+      // Provide a default message for when no MCP tools are available
+      return `IMPORTANT: MCP (Model Context Protocol) Help
+
+MCP allows you to interact with external services through tool calls, but currently no MCP servers are connected.
+
+If asked to use GitHub or other MCP tools, explain that you currently don't have access to those tools. Do not mention running a test server, as this may confuse the user.
+
+If the user asks about using GitHub tools, suggest they check their MCP configuration in the settings panel.
+
+You can still provide helpful responses based on your general knowledge, but without access to specific external tools.`;
     }
 
     return toolsDescription;
@@ -268,6 +251,22 @@ async function getMCPToolsDescription(): Promise<string | null> {
     - getRepositoryContents(owner, repo, path): Get file contents
     - createRepository(name, options): Create a new repository
     - request(endpoint, options): Make custom API requests\n\n`;
+
+        // Also add the direct tool names for better compatibility
+        toolsDescription += `- github_get_user: Get information about the authenticated GitHub user
+- github_list_repositories: List repositories for the authenticated user
+- github_search_repositories: Search for GitHub repositories by query
+- github_get_repository_contents: Get contents of a file or directory in a repository
+- github_create_repository: Create a new GitHub repository
+- github_request: Make a custom GitHub API request\n\n`;
+
+        // Add usage examples for clarity
+        toolsDescription += `GitHub tools can be used in two ways:
+1. Using github_api with method and arguments:
+   <tool name="github_api" input="listRepositories()">List my repositories</tool>
+
+2. Using specific tool names:
+   <tool name="github_list_repositories" input="{}">List my repositories</tool>\n\n`;
       }
 
       // Add other MCP tools

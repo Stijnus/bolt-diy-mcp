@@ -10,7 +10,7 @@ const logger = createScopedLogger('CodeBlock');
 interface CodeBlockProps {
   className?: string;
   code: string;
-  language?: BundledLanguage | SpecialLanguage;
+  language?: BundledLanguage | SpecialLanguage | 'tool_code';
   theme?: 'light-plus' | 'dark-plus';
   disableCopy?: boolean;
 }
@@ -35,14 +35,23 @@ export const CodeBlock = memo(
     };
 
     useEffect(() => {
-      if (language && !isSpecialLang(language) && !(language in bundledLanguages)) {
-        logger.warn(`Unsupported language '${language}'`);
+      // Map custom languages to supported ones
+      let effectiveLanguage = language;
+
+      // Handle tool_code as JSON (common for MCP tool results)
+      if (language === 'tool_code') {
+        effectiveLanguage = 'json';
       }
 
-      logger.trace(`Language = ${language}`);
+      if (effectiveLanguage && !isSpecialLang(effectiveLanguage) && !(effectiveLanguage in bundledLanguages)) {
+        logger.warn(`Unsupported language '${effectiveLanguage}', falling back to plaintext`);
+        effectiveLanguage = 'plaintext';
+      }
+
+      logger.trace(`Language = ${language} (effective: ${effectiveLanguage})`);
 
       const processCode = async () => {
-        setHTML(await codeToHtml(code, { lang: language, theme }));
+        setHTML(await codeToHtml(code, { lang: effectiveLanguage, theme }));
       };
 
       processCode();

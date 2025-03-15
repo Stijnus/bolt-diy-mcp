@@ -4,7 +4,7 @@
  */
 
 import { createScopedLogger } from '~/utils/logger';
-import { ConnectionStatus, IMCPServerAdapter, MCPServerConfig, MCPTool } from '~/lib/modules/mcp/config';
+import type { ConnectionStatus, IMCPServerAdapter, MCPServerConfig, MCPTool } from '~/lib/modules/mcp/config';
 
 const logger = createScopedLogger('MCPBaseAdapter');
 
@@ -56,14 +56,26 @@ export abstract class BaseMCPServerAdapter implements IMCPServerAdapter {
    * @param config New configuration
    */
   updateConfig(config: Partial<MCPServerConfig>): void {
+    // Deep merge configuration
     this._config = {
       ...this._config,
       ...config,
+      auth: {
+        ...this._config.auth,
+        ...config.auth,
+      },
     };
 
     // Update baseUrl from config if provided
     if (config.baseUrl) {
       this.baseUrl = config.baseUrl;
+    }
+
+    // Re-initialize if auth changes
+    if (config.auth) {
+      this.initialize().catch((error) => {
+        logger.error(`Failed to re-initialize after config update:`, error);
+      });
     }
   }
 

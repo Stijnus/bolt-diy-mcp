@@ -7,6 +7,9 @@ import { createScopedLogger } from '~/utils/logger';
 
 const logger = createScopedLogger('useMCPServers');
 
+// API endpoint for MCP servers
+const MCP_API_ENDPOINT = '/api/mcp-servers';
+
 /**
  * Server status from the runtime manager
  */
@@ -50,6 +53,42 @@ export interface UpdateServerParams {
   config?: any;
 }
 
+interface AutoDiscoverResponse {
+  addedCount: number;
+  servers: ServerStatus[];
+}
+
+interface DiscoveryResponse {
+  servers: DiscoveredServer[];
+  error?: string;
+}
+
+interface ServerResponse {
+  server: ServerStatus;
+  error?: string;
+}
+
+interface ServersResponse {
+  servers: ServerStatus[];
+  error?: string;
+  addedCount?: number;
+}
+
+// Type guard for ServerResponse
+function isServerResponse(data: unknown): data is ServerResponse {
+  return typeof data === 'object' && data !== null && 'server' in data;
+}
+
+// Type guard for ServersResponse
+function isServersResponse(data: unknown): data is ServersResponse {
+  return typeof data === 'object' && data !== null && 'servers' in data;
+}
+
+// Type guard for DiscoveryResponse
+function isDiscoveryResponse(data: unknown): data is DiscoveryResponse {
+  return typeof data === 'object' && data !== null && 'servers' in data;
+}
+
 /**
  * Hook for managing MCP servers
  */
@@ -67,22 +106,26 @@ export function useMCPServers() {
   const fetchServers = useCallback(async (includeDisabled: boolean = false) => {
     setLoading(true);
     setError(null);
-    
+
     try {
-      const response = await fetch(`/api/mcp-servers?action=list&includeDisabled=${includeDisabled}`);
-      
+      const response = await fetch(`${MCP_API_ENDPOINT}?action=list&includeDisabled=${includeDisabled}`);
+
       if (!response.ok) {
         throw new Error(`Failed to fetch servers: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
-      
+
+      if (!isServersResponse(data)) {
+        throw new Error('Invalid server response format');
+      }
+
       // Convert lastChecked strings to Date objects
-      const formattedServers = data.servers.map((server: any) => ({
+      const formattedServers = data.servers.map((server) => ({
         ...server,
         lastChecked: new Date(server.lastChecked),
       }));
-      
+
       setServers(formattedServers);
     } catch (error) {
       logger.error('Error fetching MCP servers:', error);
@@ -96,141 +139,174 @@ export function useMCPServers() {
    * Add a new server
    * @param params Server parameters
    */
-  const addServer = useCallback(async (params: AddServerParams) => {
-    try {
-      const response = await fetch('/api/mcp-servers', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(params),
-      });
-      
-      if (!response.ok) {
+  const addServer = useCallback(
+    async (params: AddServerParams) => {
+      try {
+        const response = await fetch(MCP_API_ENDPOINT, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(params),
+        });
+
         const data = await response.json();
-        throw new Error(data.error || `Failed to add server: ${response.statusText}`);
+
+        if (!response.ok) {
+          if (isServerResponse(data)) {
+            throw new Error(data.error || `Failed to add server: ${response.statusText}`);
+          }
+
+          throw new Error(`Failed to add server: ${response.statusText}`);
+        }
+
+        await fetchServers(true);
+
+        return data;
+      } catch (error) {
+        logger.error('Error adding MCP server:', error);
+        throw error;
       }
-      
-      // Refresh the server list
-      await fetchServers(true);
-      
-      return await response.json();
-    } catch (error) {
-      logger.error('Error adding MCP server:', error);
-      throw error;
-    }
-  }, [fetchServers]);
+    },
+    [fetchServers],
+  );
 
   /**
    * Update a server
    * @param params Update parameters
    */
-  const updateServer = useCallback(async (params: UpdateServerParams) => {
-    try {
-      const response = await fetch('/api/mcp-servers', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(params),
-      });
-      
-      if (!response.ok) {
+  const updateServer = useCallback(
+    async (params: UpdateServerParams) => {
+      try {
+        const response = await fetch(`${MCP_API_ENDPOINT}/${params.serverId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(params),
+        });
+
         const data = await response.json();
-        throw new Error(data.error || `Failed to update server: ${response.statusText}`);
+
+        if (!response.ok) {
+          if (isServerResponse(data)) {
+            throw new Error(data.error || `Failed to update server: ${response.statusText}`);
+          }
+
+          throw new Error(`Failed to update server: ${response.statusText}`);
+        }
+
+        await fetchServers(true);
+
+        return data;
+      } catch (error) {
+        logger.error('Error updating MCP server:', error);
+        throw error;
       }
-      
-      // Refresh the server list
-      await fetchServers(true);
-      
-      return await response.json();
-    } catch (error) {
-      logger.error('Error updating MCP server:', error);
-      throw error;
-    }
-  }, [fetchServers]);
+    },
+    [fetchServers],
+  );
 
   /**
    * Enable or disable a server
    * @param serverId Server ID
    * @param enabled Whether to enable the server
    */
-  const setServerEnabled = useCallback(async (serverId: string, enabled: boolean) => {
-    try {
-      const response = await fetch('/api/mcp-servers', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          serverId,
-          enabled,
-        }),
-      });
-      
-      if (!response.ok) {
+  const setServerEnabled = useCallback(
+    async (serverId: string, enabled: boolean) => {
+      try {
+        const response = await fetch(MCP_API_ENDPOINT, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            serverId,
+            enabled,
+          }),
+        });
+
         const data = await response.json();
-        throw new Error(data.error || `Failed to ${enabled ? 'enable' : 'disable'} server: ${response.statusText}`);
+
+        if (!response.ok) {
+          if (isServerResponse(data)) {
+            throw new Error(data.error || `Failed to ${enabled ? 'enable' : 'disable'} server: ${response.statusText}`);
+          }
+
+          throw new Error(`Failed to ${enabled ? 'enable' : 'disable'} server: ${response.statusText}`);
+        }
+
+        await fetchServers(true);
+
+        return data;
+      } catch (error) {
+        logger.error(`Error ${enabled ? 'enabling' : 'disabling'} MCP server:`, error);
+        throw error;
       }
-      
-      // Refresh the server list
-      await fetchServers(true);
-      
-      return await response.json();
-    } catch (error) {
-      logger.error(`Error ${enabled ? 'enabling' : 'disabling'} MCP server:`, error);
-      throw error;
-    }
-  }, [fetchServers]);
+    },
+    [fetchServers],
+  );
 
   /**
    * Remove a server
    * @param serverId Server ID
    */
-  const removeServer = useCallback(async (serverId: string) => {
-    try {
-      const response = await fetch(`/api/mcp-servers?serverId=${serverId}`, {
-        method: 'DELETE',
-      });
-      
-      if (!response.ok) {
+  const removeServer = useCallback(
+    async (serverId: string) => {
+      try {
+        const response = await fetch(`${MCP_API_ENDPOINT}?serverId=${serverId}`, {
+          method: 'DELETE',
+        });
+
         const data = await response.json();
-        throw new Error(data.error || `Failed to remove server: ${response.statusText}`);
+
+        if (!response.ok) {
+          if (isServerResponse(data)) {
+            throw new Error(data.error || `Failed to remove server: ${response.statusText}`);
+          }
+
+          throw new Error(`Failed to remove server: ${response.statusText}`);
+        }
+
+        await fetchServers(true);
+
+        return data;
+      } catch (error) {
+        logger.error('Error removing MCP server:', error);
+        throw error;
       }
-      
-      // Refresh the server list
-      await fetchServers(true);
-      
-      return await response.json();
-    } catch (error) {
-      logger.error('Error removing MCP server:', error);
-      throw error;
-    }
-  }, [fetchServers]);
+    },
+    [fetchServers],
+  );
 
   /**
    * Refresh the status of all servers
    */
   const refreshAllServers = useCallback(async () => {
     try {
-      const response = await fetch('/api/mcp-servers?action=refresh');
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || `Failed to refresh servers: ${response.statusText}`);
-      }
-      
+      const response = await fetch(`${MCP_API_ENDPOINT}?action=refresh`);
+
       const data = await response.json();
-      
+
+      if (!response.ok) {
+        if (isServersResponse(data)) {
+          throw new Error(data.error || `Failed to refresh servers: ${response.statusText}`);
+        }
+
+        throw new Error(`Failed to refresh servers: ${response.statusText}`);
+      }
+
+      if (!isServersResponse(data)) {
+        throw new Error('Invalid server response format');
+      }
+
       // Convert lastChecked strings to Date objects
-      const formattedServers = data.servers.map((server: any) => ({
+      const formattedServers = data.servers.map((server) => ({
         ...server,
         lastChecked: new Date(server.lastChecked),
       }));
-      
+
       setServers(formattedServers);
-      
-      return formattedServers;
     } catch (error) {
       logger.error('Error refreshing MCP servers:', error);
       throw error;
@@ -243,24 +319,29 @@ export function useMCPServers() {
    */
   const refreshServer = useCallback(async (serverId: string) => {
     try {
-      const response = await fetch(`/api/mcp-servers?action=refresh&serverId=${serverId}`);
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || `Failed to refresh server: ${response.statusText}`);
-      }
-      
+      const response = await fetch(`${MCP_API_ENDPOINT}?action=refresh&serverId=${serverId}`);
       const data = await response.json();
+
+      if (!response.ok) {
+        if (isServerResponse(data)) {
+          throw new Error(data.error || `Failed to refresh server: ${response.statusText}`);
+        }
+
+        throw new Error(`Failed to refresh server: ${response.statusText}`);
+      }
+
+      if (!isServerResponse(data)) {
+        throw new Error('Invalid server response format');
+      }
+
       const updatedServer = {
         ...data.server,
         lastChecked: new Date(data.server.lastChecked),
       };
-      
+
       // Update the server in the list
-      setServers(prev => prev.map(server => 
-        server.id === serverId ? updatedServer : server
-      ));
-      
+      setServers((prev) => prev.map((server) => (server.id === serverId ? updatedServer : server)));
+
       return updatedServer;
     } catch (error) {
       logger.error('Error refreshing MCP server:', error);
@@ -274,18 +355,25 @@ export function useMCPServers() {
    */
   const discoverServers = useCallback(async (port: number = 3001) => {
     setDiscoveringServers(true);
-    
+
     try {
-      const response = await fetch(`/api/mcp-servers?action=discover&port=${port}`);
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || `Failed to discover servers: ${response.statusText}`);
-      }
-      
+      const response = await fetch(`${MCP_API_ENDPOINT}?action=discover&port=${port}`);
       const data = await response.json();
+
+      if (!response.ok) {
+        if (isDiscoveryResponse(data)) {
+          throw new Error(data.error || `Failed to discover servers: ${response.statusText}`);
+        }
+
+        throw new Error(`Failed to discover servers: ${response.statusText}`);
+      }
+
+      if (!isDiscoveryResponse(data)) {
+        throw new Error('Invalid discovery response format');
+      }
+
       setDiscoveredServers(data.servers);
-      
+
       return data.servers;
     } catch (error) {
       logger.error('Error discovering MCP servers:', error);
@@ -298,29 +386,35 @@ export function useMCPServers() {
   /**
    * Auto-discover and add servers
    */
-  const autoDiscoverAndAddServers = useCallback(async () => {
+  const autoDiscoverAndAddServers = useCallback(async (): Promise<AutoDiscoverResponse> => {
     setDiscoveringServers(true);
-    
+
     try {
-      const response = await fetch('/api/mcp-servers?action=auto-discover');
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || `Failed to auto-discover servers: ${response.statusText}`);
-      }
-      
+      const response = await fetch(`${MCP_API_ENDPOINT}?action=auto-discover`);
       const data = await response.json();
-      
+
+      if (!response.ok) {
+        if (isServersResponse(data)) {
+          throw new Error(data.error || `Failed to auto-discover servers: ${response.statusText}`);
+        }
+
+        throw new Error(`Failed to auto-discover servers: ${response.statusText}`);
+      }
+
+      if (!isServersResponse(data)) {
+        throw new Error('Invalid server response format');
+      }
+
       // Convert lastChecked strings to Date objects
-      const formattedServers = data.servers.map((server: any) => ({
+      const formattedServers = data.servers.map((server) => ({
         ...server,
         lastChecked: new Date(server.lastChecked),
       }));
-      
+
       setServers(formattedServers);
-      
+
       return {
-        addedCount: data.addedCount,
+        addedCount: data.addedCount ?? 0,
         servers: formattedServers,
       };
     } catch (error) {

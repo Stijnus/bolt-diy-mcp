@@ -460,31 +460,9 @@ export const ChatImpl = memo(
     // Function to get MCP server information for the LLM
     const getMcpServerInfo = async () => {
       try {
-        // Check MCP test server status
-        let testServerConnected = false;
-        let testServerInfo = '';
-
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 1000);
-          const testResponse = await fetch('http://localhost:3001/', {
-            signal: controller.signal,
-          });
-          clearTimeout(timeoutId);
-          testServerConnected = testResponse.ok;
-
-          if (testServerConnected) {
-            testServerInfo = `MCP test server is running at http://localhost:3001 with tools:
-- hello: A simple greeting tool that accepts a name parameter
-  Example: <tool name="hello" input='{"name":"Your Name"}'>...</tool>
-- calculator: Perform basic calculations with operations: add, subtract, multiply, divide
-  Example: <tool name="calculator" input='{"operation":"add", "a":5, "b":3}'>...</tool>
-- weather: Get weather information for a location
-  Example: <tool name="weather" input='{"location":"New York"}'>...</tool>`;
-          }
-        } catch (error) {
-          console.log('Test server not running:', error);
-        }
+        // Skip local test server check - will use the MCP system directly
+        const testServerConnected = false;
+        const testServerInfo = '';
 
         // Check GitHub connection
         const githubClient = getGitHubMCPClient();
@@ -588,15 +566,7 @@ You can use these GitHub API methods through tool calls:
           }
         }
 
-        // Check for weather-related queries if MCP test server is running
-        if (
-          mcpInfo.includes('weather') &&
-          (messageContent.toLowerCase().includes('weather') ||
-            messageContent.toLowerCase().includes('temperature') ||
-            messageContent.toLowerCase().includes('forecast'))
-        ) {
-          return "I notice you're asking about weather. I can get weather information using the MCP test server. Would you like me to check the weather for a specific location?";
-        }
+        // Removed test server check for weather as we're using GitHub only
 
         return null; // No relevant MCP tool opportunity detected
       } catch (error) {
@@ -943,7 +913,7 @@ You can use these GitHub API methods through tool calls:
               role: 'assistant',
               content: `I'll list your GitHub repositories using the GitHub API integration.
 
-<tool name="github_api" input="listRepositories"></tool>
+<tool name="github_api" input="listRepositories">Fetching your GitHub repositories...</tool>
 
 Let me know if you'd like more information about any specific repository.`,
             });
@@ -1212,6 +1182,43 @@ Let me know if you'd like to search for something else or get more details about
 
         // Check if this message might benefit from MCP tools
         const mcpToolSuggestion = await detectMcpToolOpportunity(messageContent);
+
+        // SPECIAL HANDLING: If the message asks about GitHub repositories, force a direct response
+        if (messageContent.toLowerCase().includes('github') && messageContent.toLowerCase().includes('repo')) {
+          console.log('Detected GitHub repository request - using direct tool call');
+
+          // Add user message
+          append({
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${messageContent}`,
+              },
+              ...imageDataList.map((imageData) => ({
+                type: 'image',
+                image: imageData,
+              })),
+            ] as any,
+          });
+
+          // Add assistant response with GitHub tool
+          append({
+            role: 'assistant',
+            content: `I'll fetch your GitHub repositories:
+
+<tool name="github_api" input="listRepositories">Fetching your GitHub repositories...</tool>`,
+          });
+
+          setInput('');
+          Cookies.remove(PROMPT_COOKIE_KEY);
+          setUploadedFiles([]);
+          setImageDataList([]);
+          resetEnhancer();
+          textareaRef.current?.blur();
+
+          return;
+        }
 
         append({
           role: 'user',

@@ -4,14 +4,8 @@
  */
 
 import { createScopedLogger } from '~/utils/logger';
-import {
-  createServerAdapter,
-  MCPServerRegistry,
-  MCPToolFactory,
-  MCPRegistryEventType,
-  getMCPToolsDescription,
-} from '../index';
-import { StandardMCPServerAdapter, GitHubMCPServerAdapter } from '../adapters';
+import { createServerAdapter, MCPServerRegistry, MCPToolFactory, MCPRegistryEventType } from '~/lib/modules/mcp';
+import { GitHubMCPServerAdapter } from '~/lib/modules/mcp/adapters';
 
 const logger = createScopedLogger('MCPRegistryExample');
 
@@ -57,13 +51,18 @@ export async function runRegistryExample() {
 
     // Create tools for AI SDK
     const tools = await toolFactory.createTools({
-      onToolCall: (serverId, toolName, args, resultPromise) => {
+      onToolCall: (
+        serverId: string,
+        toolName: string,
+        args: Record<string, unknown>,
+        resultPromise: Promise<string>,
+      ) => {
         logger.info(`Tool called: ${toolName} on server ${serverId}`);
 
         // Example: Log the result when it's available
         resultPromise.then(
-          (result) => logger.info(`Tool result: ${result.substring(0, 100)}...`),
-          (error) => logger.error(`Tool error: ${error}`),
+          (result: string) => logger.info(`Tool result: ${result.substring(0, 100)}...`),
+          (error: Error) => logger.error(`Tool error: ${error}`),
         );
       },
     });
@@ -76,26 +75,18 @@ export async function runRegistryExample() {
     logger.info('Tool description for LLM:');
     logger.info(toolDescription);
 
-    // Example: Get tool description from the convenience function
-    const toolDescriptionFromFunction = await getMCPToolsDescription();
+    // Execute a sample tool
+    const sampleToolName = Object.keys(tools)[0];
 
-    // These should be identical
-    if (toolDescription === toolDescriptionFromFunction) {
-      logger.info('Both tool description methods produce identical results');
-    }
-
-    // Execute a tool if available
-    if (Object.keys(tools).length > 0) {
-      const sampleToolName = Object.keys(tools)[0];
-
-      try {
-        logger.info(`Executing sample tool: ${sampleToolName}`);
-
-        const result = await tools[sampleToolName].execute({});
-        logger.info(`Sample tool execution result: ${result}`);
-      } catch (error) {
-        logger.error(`Error executing sample tool: ${error}`);
-      }
+    if (sampleToolName && tools[sampleToolName] && tools[sampleToolName].execute) {
+      const result = await tools[sampleToolName].execute(
+        {},
+        {
+          toolCallId: `example-tool-${Date.now()}`,
+          messages: [],
+        },
+      );
+      console.log(`Tool execution result:`, result);
     }
 
     logger.info('MCP Registry Example completed successfully');
@@ -111,29 +102,6 @@ export async function runRegistryExample() {
 export function exampleUsage() {
   // This is reference code only, not meant to be executed
 
-  // Initialize MCP in your application bootstrap
-  async function initializeApp() {
-    // Initialize MCP registry from environment and localStorage
-    const { initializeMCPWithRegistry } = await import('../index');
-    const registry = await initializeMCPWithRegistry();
-
-    // Get the tool factory
-    const { MCPToolFactory } = await import('../index');
-    const toolFactory = MCPToolFactory.getInstance();
-
-    // Create AI SDK tools
-    const mcpTools = await toolFactory.createTools();
-
-    // Register tools with the LLM system
-    registerToolsWithLLM(mcpTools);
-
-    // Generate tool descriptions for LLM prompts
-    const toolDescription = await toolFactory.generateToolDescription();
-
-    // Add to system prompt
-    appendToSystemPrompt(toolDescription);
-  }
-
   // Mock functions to show integration
   function registerToolsWithLLM(tools: any) {
     // Register tools with the LLM service
@@ -144,4 +112,8 @@ export function exampleUsage() {
     // Add tool descriptions to the system prompt
     console.log(`Added ${description.length} characters to system prompt`);
   }
+
+  // Example usage of the functions
+  registerToolsWithLLM({});
+  appendToSystemPrompt('example description');
 }

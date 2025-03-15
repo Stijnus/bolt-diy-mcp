@@ -42,7 +42,7 @@ export function McpStatus() {
     const checkMcpStatus = async () => {
       try {
         // Get the initialized MCP components
-        const { registry, toolFactory } = await getMCPBootstrapPromise();
+        const { registry } = await getMCPBootstrapPromise();
 
         // Get all enabled servers
         const servers = registry.getEnabledServers();

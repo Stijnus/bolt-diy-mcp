@@ -3,7 +3,7 @@
  * This file demonstrates how to use the MCP Client in your application
  */
 
-import { initializeMCP, getMCPClients, getMCPTools } from './init';
+import { initializeMCP, getMCPClients } from './init';
 import { createScopedLogger } from '~/utils/logger';
 
 const logger = createScopedLogger('MCPExample');

@@ -23,15 +23,15 @@ export async function bootstrapMCP(): Promise<{
     logger.info('Bootstrapping MCP with the modular architecture...');
 
     // Initialize registry from environment variables and localStorage
-    const { initializeMCPWithRegistry } = await import('./index');
-    const registry = await initializeMCPWithRegistry(getEnvironmentVariables());
+    const { initializeMCPRegistry } = await import('./index');
+    const registry = await initializeMCPRegistry({ env: getEnvironmentVariables() });
 
     // Get the tool factory
     const toolFactory = MCPToolFactory.getInstance();
 
     // Initialize runtime manager
-    const { MCPRuntimeManager } = await import('./runtime-manager');
-    const runtimeManager = MCPRuntimeManager.getInstance();
+    const { MCPRuntimeManager: MCP_RUNTIME_MANAGER } = await import('./runtime-manager');
+    const runtimeManager = MCP_RUNTIME_MANAGER.getInstance();
     await runtimeManager.initialize({
       interval: 30000, // Check every 30 seconds
       onStatusChange: (status) => {
@@ -80,12 +80,12 @@ export async function bootstrapMCP(): Promise<{
     logger.error('Failed to bootstrap MCP:', error);
 
     // Return empty instances as fallback
-    const { MCPRuntimeManager } = await import('./runtime-manager');
+    const { MCPRuntimeManager: MCP_RUNTIME_MANAGER } = await import('./runtime-manager');
 
     return {
       registry: MCPServerRegistry.getInstance(),
       toolFactory: MCPToolFactory.getInstance(),
-      runtimeManager: MCPRuntimeManager.getInstance(),
+      runtimeManager: MCP_RUNTIME_MANAGER.getInstance(),
     };
   }
 }
@@ -102,16 +102,16 @@ let bootstrapPromise: Promise<{
 
 if (typeof window !== 'undefined') {
   // Only run in browser environment and ensure we only initialize once
-  bootstrapPromise = bootstrapMCP().catch((error) => {
+  bootstrapPromise = bootstrapMCP().catch(async (error) => {
     logger.error('Unhandled error during MCP bootstrap:', error);
 
     // Return empty instances as fallback
-    const { MCPRuntimeManager } = require('./runtime-manager');
+    const { MCPRuntimeManager: MCP_RUNTIME_MANAGER } = await import('./runtime-manager');
 
     return {
       registry: MCPServerRegistry.getInstance(),
       toolFactory: MCPToolFactory.getInstance(),
-      runtimeManager: MCPRuntimeManager.getInstance(),
+      runtimeManager: MCP_RUNTIME_MANAGER.getInstance(),
     };
   });
 }

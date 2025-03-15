@@ -57,7 +57,7 @@ tool-result,
 /* Tool result title */
 tool-result::before,
 .tool-result::before {
-  content: attr(name) + ' result:';
+  content: attr(name) ' result:';
   display: block;
   font-size: 0.9em;
   font-weight: bold;
@@ -83,7 +83,7 @@ tool-error,
 /* Tool error title */
 tool-error::before,
 .tool-error::before {
-  content: attr(name) + ' error:';
+  content: attr(name) ' error:';
   display: block;
   font-size: 0.9em;
   font-weight: bold;
@@ -119,7 +119,7 @@ tool,
 /* Tool call title */
 tool::before,
 .tool::before {
-  content: attr(name) + ' call:';
+  content: attr(name) ' call:';
   display: block;
   font-size: 0.9em;
   font-weight: bold;

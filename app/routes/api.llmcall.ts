@@ -103,6 +103,12 @@ async function llmCallAction({ context, request }: ActionFunctionArgs) {
 
       const dynamicMaxTokens = modelDetails && modelDetails.maxTokenAllowed ? modelDetails.maxTokenAllowed : MAX_TOKENS;
 
+      /*
+       * Ensure maxTokens doesn't exceed the maximum allowed for the model
+       * Gemini models have a maximum of 8192 for maxOutputTokens
+       */
+      const maxTokens = provider.name === 'Google' ? Math.min(dynamicMaxTokens, 8192) : dynamicMaxTokens;
+
       const providerInfo = PROVIDER_LIST.find((p) => p.name === provider.name);
 
       if (!providerInfo) {
@@ -125,7 +131,7 @@ async function llmCallAction({ context, request }: ActionFunctionArgs) {
           apiKeys,
           providerSettings,
         }),
-        maxTokens: dynamicMaxTokens,
+        maxTokens,
         toolChoice: 'none',
       });
       logger.info(`Generated response`);
